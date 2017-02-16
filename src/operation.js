@@ -1,43 +1,28 @@
-import {default as xdr} from "./generated/stellar-xdr_generated";
-import {Keypair} from "./keypair";
-import {UnsignedHyper, Hyper} from "js-xdr";
-import {hash} from "./hashing";
-import {StrKey} from "./strkey";
-import {Asset} from "./asset";
+import { default as xdr } from "./generated/stellar-xdr_generated";
+import { Keypair } from "./keypair";
+import { UnsignedHyper, Hyper } from "js-xdr";
+import { hash } from "./hashing";
+import { encodeCheck } from "./strkey";
+import { Asset } from "./asset";
 import BigNumber from 'bignumber.js';
-import {best_r} from "./util/continued_fraction";
+import { best_r } from "./util/continued_fraction";
 import padEnd from 'lodash/padEnd';
-import trimEnd  from 'lodash/trimEnd';
+import trimEnd from 'lodash/trimEnd';
 import isEmpty from 'lodash/isEmpty';
 import isUndefined from 'lodash/isUndefined';
 import isString from 'lodash/isString';
+import isBoolean from 'lodash/isBoolean';
 import isNumber from 'lodash/isNumber';
 import isFinite from 'lodash/isFinite';
 
+export const ADMIN_OP_COMMISSION = "commission";
+export const ADMIN_OP_TRAITS = "traits";
+export const ADMIN_OP_ACCOUNT_LIMITS = "account_limits";
+export const ADMIN_OP_ASSET = "asset";
+export const ADMIN_OP_MAX_REVERSAL_DURATION = "max_reversal_duration";
+
 const ONE = 10000000;
 const MAX_INT64 = '9223372036854775807';
-
-/**
- * When set using `{@link Operation.setOptions}` option, requires the issuing account to
- * give other accounts permission before they can hold the issuing account’s credit.
- * @constant
- * @see [Account flags](https://www.stellar.org/developers/guides/concepts/accounts.html#flags)
- */
-export const AuthRequiredFlag = 1 << 0;
-/**
- * When set using `{@link Operation.setOptions}` option, allows the issuing account to
- * revoke its credit held by other accounts.
- * @constant
- * @see [Account flags](https://www.stellar.org/developers/guides/concepts/accounts.html#flags)
- */
-export const AuthRevocableFlag = 1 << 1;
-/**
- * When set using `{@link Operation.setOptions}` option, then none of the authorization flags
- * can be set and the account can never be deleted.
- * @constant
- * @see [Account flags](https://www.stellar.org/developers/guides/concepts/accounts.html#flags)
- */
-export const AuthImmutableFlag = 1 << 2;
 
 /**
  * `Operation` class represents [operations](https://www.stellar.org/developers/learn/concepts/operations.html) in Stellar network.
@@ -68,16 +53,28 @@ export class Operation {
     * @returns {xdr.CreateAccountOp}
     */
     static createAccount(opts) {
-        if (!StrKey.isValidEd25519PublicKey(opts.destination)) {
+        if (!Keypair.isValidPublicKey(opts.destination)) {
             throw new Error("destination is invalid");
         }
-        if (!this.isValidAmount(opts.startingBalance)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('startingBalance'));
+
+        if (isUndefined(opts.accountType) || !this._isValidAccountType(opts.accountType)) {
+            throw new Error("Must provide an accountType for a create user operation");
         }
+
         let attributes = {};
-        attributes.destination     = Keypair.fromPublicKey(opts.destination).xdrAccountId();
-        attributes.startingBalance = this._toXDRAmount(opts.startingBalance);
-        let createAccount          = new xdr.CreateAccountOp(attributes);
+        attributes.destination = Keypair.fromAccountId(opts.destination).xdrAccountId();
+        
+        if (!isUndefined(opts.asset) && this.isValidAmount(opts.amount)){
+            let scratchCard = new xdr.ScratchCard({
+                              asset: opts.asset.toXdrObject(),
+                              amount: this._toXDRAmount(opts.amount)});
+            attributes.body = new xdr.CreateAccountOpBody(this._accountTypeFromNumber(opts.accountType), scratchCard);
+        }
+        else{
+            attributes.body = new xdr.CreateAccountOpBody(this._accountTypeFromNumber(opts.accountType));
+        }
+  
+        let createAccount = new xdr.CreateAccountOp(attributes);
 
         let opAttributes = {};
         opAttributes.body = xdr.OperationBody.createAccount(createAccount);
@@ -96,21 +93,21 @@ export class Operation {
     * @returns {xdr.PaymentOp}
     */
     static payment(opts) {
-        if (!StrKey.isValidEd25519PublicKey(opts.destination)) {
+        if (!Keypair.isValidPublicKey(opts.destination)) {
             throw new Error("destination is invalid");
         }
         if (!opts.asset) {
             throw new Error("Must provide an asset for a payment operation");
         }
         if (!this.isValidAmount(opts.amount)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('amount'));
+            throw new TypeError('amount argument must be of type String and represent a positive number');
         }
 
         let attributes = {};
-        attributes.destination  = Keypair.fromPublicKey(opts.destination).xdrAccountId();
-        attributes.asset        = opts.asset.toXdrObject();
-        attributes.amount        = this._toXDRAmount(opts.amount);
-        let payment             = new xdr.PaymentOp(attributes);
+        attributes.destination = Keypair.fromAccountId(opts.destination).xdrAccountId();
+        attributes.asset = opts.asset.toXdrObject();
+        attributes.amount = this._toXDRAmount(opts.amount);
+        let payment = new xdr.PaymentOp(attributes);
 
         let opAttributes = {};
         opAttributes.body = xdr.OperationBody.payment(payment);
@@ -138,32 +135,32 @@ export class Operation {
             throw new Error("Must specify a send asset");
         }
         if (!this.isValidAmount(opts.sendMax)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('sendMax'));
+            throw new TypeError('sendMax argument must be of type String and represent a positive number');
         }
-        if (!StrKey.isValidEd25519PublicKey(opts.destination)) {
+        if (!Keypair.isValidPublicKey(opts.destination)) {
             throw new Error("destination is invalid");
         }
         if (!opts.destAsset) {
             throw new Error("Must provide a destAsset for a payment operation");
         }
         if (!this.isValidAmount(opts.destAmount)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('destAmount'));
+            throw new TypeError('destAmount argument must be of type String and represent a positive number');
         }
 
         let attributes = {};
-        attributes.sendAsset    = opts.sendAsset.toXdrObject();
-        attributes.sendMax      = this._toXDRAmount(opts.sendMax);
-        attributes.destination  = Keypair.fromPublicKey(opts.destination).xdrAccountId();
-        attributes.destAsset    = opts.destAsset.toXdrObject();
-        attributes.destAmount   = this._toXDRAmount(opts.destAmount);
+        attributes.sendAsset = opts.sendAsset.toXdrObject();
+        attributes.sendMax = this._toXDRAmount(opts.sendMax);
+        attributes.destination = Keypair.fromAccountId(opts.destination).xdrAccountId();
+        attributes.destAsset = opts.destAsset.toXdrObject();
+        attributes.destAmount = this._toXDRAmount(opts.destAmount);
 
-        let path        = opts.path ? opts.path : [];
+        let path = opts.path ? opts.path : [];
         attributes.path = [];
         for (let i in path) {
             attributes.path.push(path[i].toXdrObject());
         }
 
-        let payment             = new xdr.PathPaymentOp(attributes);
+        let payment = new xdr.PathPaymentOp(attributes);
 
         let opAttributes = {};
         opAttributes.body = xdr.OperationBody.pathPayment(payment);
@@ -184,10 +181,10 @@ export class Operation {
     * @returns {xdr.ChangeTrustOp}
     */
     static changeTrust(opts) {
-        let attributes      = {};
-        attributes.line     = opts.asset.toXdrObject();
+        let attributes = {};
+        attributes.line = opts.asset.toXdrObject();
         if (!isUndefined(opts.limit) && !this.isValidAmount(opts.limit, true)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('limit'));
+            throw new TypeError('limit argument must be of type String and represent a number');
         }
 
         if (opts.limit) {
@@ -197,7 +194,7 @@ export class Operation {
         }
 
         if (opts.source) {
-            attributes.source   = opts.source ? opts.source.masterKeypair : null;
+            attributes.source = opts.source ? opts.source.masterKeypair : null;
         }
         let changeTrustOP = new xdr.ChangeTrustOp(attributes);
 
@@ -219,11 +216,11 @@ export class Operation {
     * @returns {xdr.AllowTrustOp}
     */
     static allowTrust(opts) {
-        if (!StrKey.isValidEd25519PublicKey(opts.trustor)) {
+        if (!Keypair.isValidPublicKey(opts.trustor)) {
             throw new Error("trustor is invalid");
         }
         let attributes = {};
-        attributes.trustor = Keypair.fromPublicKey(opts.trustor).xdrAccountId();
+        attributes.trustor = Keypair.fromAccountId(opts.trustor).xdrAccountId();
         if (opts.assetCode.length <= 4) {
             let code = padEnd(opts.assetCode, 4, '\0');
             attributes.asset = xdr.AllowTrustOpAsset.assetTypeCreditAlphanum4(code);
@@ -246,39 +243,34 @@ export class Operation {
     /**
     * Returns an XDR SetOptionsOp. A "set options" operations set or clear account flags,
     * set the account's inflation destination, and/or add new signers to the account.
-    * The flags used in `opts.clearFlags` and `opts.setFlags` can be the following:
-    *   - `{@link AuthRequiredFlag}`
-    *   - `{@link AuthRevocableFlag}`
-    *   - `{@link AuthImmutableFlag}`
-    *
-    * It's possible to set/clear multiple flags at once using logical or.
+    * The account flags are the xdr.AccountFlags enum, which are:
+    *   - AUTH_REQUIRED_FLAG = 0x1
+    *   - AUTH_REVOCABLE_FLAG = 0x2
+    *   - AUTH_IMMUTABLE_FLAG = 0x4
     * @param {object} opts
     * @param {string} [opts.inflationDest] - Set this account ID as the account's inflation destination.
-    * @param {(number|string)} [opts.clearFlags] - Bitmap integer for which account flags to clear.
-    * @param {(number|string)} [opts.setFlags] - Bitmap integer for which account flags to set.
+    * @param {(number|string)} [opts.clearFlags] - Bitmap integer for which flags to clear.
+    * @param {(number|string)} [opts.setFlags] - Bitmap integer for which flags to set.
     * @param {number|string} [opts.masterWeight] - The master key weight.
     * @param {number|string} [opts.lowThreshold] - The sum weight for the low threshold.
     * @param {number|string} [opts.medThreshold] - The sum weight for the medium threshold.
     * @param {number|string} [opts.highThreshold] - The sum weight for the high threshold.
     * @param {object} [opts.signer] - Add or remove a signer from the account. The signer is
-    *                                 deleted if the weight is 0. Only one of `ed25519PublicKey`, `sha256Hash`, `preAuthTx` should be defined.
-    * @param {string} [opts.signer.ed25519PublicKey] - The ed25519 public key of the signer.
-    * @param {Buffer|string} [opts.signer.sha256Hash] - sha256 hash (Buffer or hex string) of preimage that will unlock funds. Preimage should be used as signature of future transaction.
-    * @param {Buffer|string} [opts.signer.preAuthTx] - Hash (Buffer or hex string) of transaction that will unlock funds.
+    *                                 deleted if the weight is 0.
+    * @param {string} [opts.signer.pubKey] - The public key of the new signer (old `address` field name is deprecated).
     * @param {number|string} [opts.signer.weight] - The weight of the new signer (0 to delete or 1-255)
     * @param {string} [opts.homeDomain] - sets the home domain used for reverse federation lookup.
     * @param {string} [opts.source] - The source account (defaults to transaction source).
     * @returns {xdr.SetOptionsOp}
-    * @see [Account flags](https://www.stellar.org/developers/guides/concepts/accounts.html#flags)
     */
     static setOptions(opts) {
         let attributes = {};
 
         if (opts.inflationDest) {
-            if (!StrKey.isValidEd25519PublicKey(opts.inflationDest)) {
+            if (!Keypair.isValidPublicKey(opts.inflationDest)) {
                 throw new Error("inflationDest is invalid");
             }
-            attributes.inflationDest = Keypair.fromPublicKey(opts.inflationDest).xdrAccountId();
+            attributes.inflationDest = Keypair.fromAccountId(opts.inflationDest).xdrAccountId();
         }
 
         let weightCheckFunction = (value, name) => {
@@ -302,49 +294,28 @@ export class Operation {
         attributes.homeDomain = opts.homeDomain;
 
         if (opts.signer) {
-            let weight = this._checkUnsignedIntValue("signer.weight", opts.signer.weight, weightCheckFunction);
-            let key;
-
-            let setValues = 0;
-
-            if (opts.signer.ed25519PublicKey) {
-                if (!StrKey.isValidEd25519PublicKey(opts.signer.ed25519PublicKey)) {
-                  throw new Error("signer.ed25519PublicKey is invalid.");
-                }
-                let rawKey = StrKey.decodeEd25519PublicKey(opts.signer.ed25519PublicKey);
-                key = new xdr.SignerKey.signerKeyTypeEd25519(rawKey);
-                setValues++;
+            if (opts.signer.address) {
+                console.warn("signer.address is deprecated. Use signer.pubKey instead.");
+                opts.signer.pubKey = opts.signer.address;
             }
 
-            if (opts.signer.preAuthTx) {
-                if (isString(opts.signer.preAuthTx)) {
-                  opts.signer.preAuthTx = Buffer.from(opts.signer.preAuthTx, "hex");
-                }
-
-                if (!(Buffer.isBuffer(opts.signer.preAuthTx) && opts.signer.preAuthTx.length == 32)) {
-                    throw new Error("signer.preAuthTx must be 32 bytes Buffer.");
-                }
-                key = new xdr.SignerKey.signerKeyTypePreAuthTx(opts.signer.preAuthTx);
-                setValues++;
+            if (!Keypair.isValidPublicKey(opts.signer.pubKey)) {
+                throw new Error("signer.pubKey is invalid");
             }
 
-            if (opts.signer.sha256Hash) {
-                if (isString(opts.signer.sha256Hash)) {
-                  opts.signer.sha256Hash = Buffer.from(opts.signer.sha256Hash, "hex");
-                }
-
-                if (!(Buffer.isBuffer(opts.signer.sha256Hash) && opts.signer.sha256Hash.length == 32)) {
-                    throw new Error("signer.sha256Hash must be 32 bytes Buffer.");
-                }
-                key = new xdr.SignerKey.signerKeyTypeHashX(opts.signer.sha256Hash);
-                setValues++;
+            if (!opts.signer.signerType && opts.signer.signerType !== 0) {
+                throw new Error("invalid signer type");
             }
 
-            if (setValues != 1) {
-                throw new Error("Signer object must contain exactly one of signer.ed25519PublicKey, signer.sha256Hash, signer.preAuthTx.");
-            }
+            opts.signer.weight = this._checkUnsignedIntValue("signer.weight", opts.signer.weight, weightCheckFunction);
 
-            attributes.signer = new xdr.Signer({key, weight});
+
+            attributes.signer = new xdr.Signer({
+                pubKey: Keypair.fromAccountId(opts.signer.pubKey).xdrAccountId(),
+                weight: opts.signer.weight,
+                signerType: opts.signer.signerType
+
+            });
         }
 
         let setOptionsOp = new xdr.SetOptionsOp(attributes);
@@ -376,7 +347,7 @@ export class Operation {
         attributes.selling = opts.selling.toXdrObject();
         attributes.buying = opts.buying.toXdrObject();
         if (!this.isValidAmount(opts.amount, true)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('amount'));
+            throw new TypeError('amount argument must be of type String and represent a positive number or zero');
         }
         attributes.amount = this._toXDRAmount(opts.amount);
         if (isUndefined(opts.price)) {
@@ -420,7 +391,7 @@ export class Operation {
         attributes.selling = opts.selling.toXdrObject();
         attributes.buying = opts.buying.toXdrObject();
         if (!this.isValidAmount(opts.amount)) {
-            throw new TypeError(Operation.constructAmountRequirementsError('amount'));
+            throw new TypeError('amount argument must be of type String and represent a positive number');
         }
         attributes.amount = this._toXDRAmount(opts.amount);
         if (isUndefined(opts.price)) {
@@ -445,11 +416,11 @@ export class Operation {
     */
     static accountMerge(opts) {
         let opAttributes = {};
-        if (!StrKey.isValidEd25519PublicKey(opts.destination)) {
+        if (!Keypair.isValidPublicKey(opts.destination)) {
             throw new Error("destination is invalid");
         }
         opAttributes.body = xdr.OperationBody.accountMerge(
-            Keypair.fromPublicKey(opts.destination).xdrAccountId()
+            Keypair.fromAccountId(opts.destination).xdrAccountId()
         );
         this.setSourceAccount(opAttributes, opts);
 
@@ -462,7 +433,7 @@ export class Operation {
     * @param {string} [opts.source] - The optional source account.
     * @returns {xdr.InflationOp}
     */
-    static inflation(opts={}) {
+    static inflation(opts = {}) {
         let opAttributes = {};
         opAttributes.body = xdr.OperationBody.inflation();
         this.setSourceAccount(opAttributes, opts);
@@ -508,13 +479,310 @@ export class Operation {
         return new xdr.Operation(opAttributes);
     }
 
+    /**
+    * Updates max reversal duration options
+    * @param {string|Number} maxDuration - max reversal duration in seconds
+    * @returns {Promise} Returns a promise to the error if failed to set max reversal duration
+    */
+    static setMaxReversalDuration(maxDuration) {
+        if (isUndefined(maxDuration)) {
+            throw new Error("maxDuration must be a number or string");
+        }
+
+        let attrs = {
+            max_reversal_duration: maxDuration.toString()
+        };
+        return this._createAdministrativeOp(ADMIN_OP_MAX_REVERSAL_DURATION, attrs);
+    }
+
+    /**
+    * Creates or update commission object
+    * @param {object} opts
+    * @param {string} [opts.from] source of operations 
+    * @param {string} [opts.to] destination of operation
+    * @param {string} [opts.from_type] source account type
+    * @param {string} [opts.to_type] destination type
+    * @param {Asset} [opts.asset] - The asset of commission
+    * @param {string} flat_fee - flat fee
+    * @param {string} percent_fee - percent fee
+    * @returns {Promise} Returns a promise to the error if failed to set commission
+    */
+    static setCommission(opts, flat_fee, percent_fee) {
+        if (!this.isValidAmount(flat_fee, true)) {
+            throw new TypeError('flat_fee argument must be of type String and represent nonnegative number');
+        }
+
+        if (!this.isValidAmount(percent_fee, true)) {
+            throw new TypeError('percent_fee argument must be of type String and represent nonnegative number');
+        }
+
+        let attrs = {
+            flat_fee: this._toXDRAmount(flat_fee).toString(),
+            percent_fee: this._toXDRAmount(percent_fee).toString(),
+        };
+
+        if (isUndefined(opts)) {
+            throw new TypeError('opts must be object');
+        }
+
+        this._setCommissionKey(opts, attrs);
+
+        return this._createAdministrativeOp(ADMIN_OP_COMMISSION, attrs);
+    }
+
+    static _setCommissionKey(source, dest) {
+
+        if (source.from) {
+            dest.from = source.from;
+        }
+
+        if (source.to) {
+            dest.to = source.to;
+        }
+
+        if (source.from_type) {
+            dest.from_type = source.from_type;
+        }
+
+        if (source.to_type) {
+            dest.to_type = source.to_type;
+        }
+
+        if (source.asset) {
+            dest.asset_type = source.asset.getAssetType();
+            if (!source.asset.isNative()) {
+                dest.asset_code = source.asset.getCode();
+                dest.asset_issuer = source.asset.getIssuer();
+            }
+        }
+    }
+
+    /**
+     * Deletes commission
+     * @param {object} key
+     * @param {string} [key.from] source of operations 
+     * @param {string} [key.to] destination of operation
+     * @param {string} [key.from_type] source account type
+     * @param {string} [key.to_type] destination type
+     * @param {Asset} [key.asset] - The asset of commission
+     */
+    static deleteCommission(key) {
+        var attrs = {
+            delete: "true"
+        };
+
+        this._setCommissionKey(key, attrs);
+
+        return this._createAdministrativeOp(ADMIN_OP_COMMISSION, attrs);
+    }
+
+    /**
+     * Sets limits for specified account
+     * @param {string} accountId - account id of account for which limits will be set 
+     * @param {string} asset_code - defines asset of operation for which limits will be set
+     * @param {object} limit
+     * @param {string} [limit.max_operation_out] - defines max number of outgoing ops
+     * @param {string} [limit.daily_max_out] - daily_max_out
+     * @param {string} [limit.monthly_max_out] - defines monthly_max_out
+     * @param {string} [limit.max_operation_in] - defines max_operation_in
+     * @param {string} [limit.daily_max_in] - defines daily_max_in
+     * @param {string} [limit.monthly_max_in] - defines monthly_max_in
+     */
+    static setAgentLimits(accountId, asset_code, limit) {
+        if (!isString(asset_code)) {
+            throw new TypeError('asset_code argument must be of type String');
+        }
+
+        if (!isString(accountId)) {
+            throw new TypeError('accountId argument must be of type String');
+        }
+
+        var attrs = {
+            asset_code: asset_code,
+            account_id: accountId
+        };
+
+        attrs.max_operation_out = this._toLimitAmount(limit.max_operation_out);
+        if (isEmpty(attrs.max_operation_out)) {
+            throw new TypeError('limit.max_operation_out argument must be of type String');
+        }
+
+        attrs.daily_max_out = this._toLimitAmount(limit.daily_max_out);
+        if (isEmpty(attrs.daily_max_out)) {
+            throw new TypeError('limit.daily_max_out argument must be of type String');
+        }
+
+
+        attrs.monthly_max_out = this._toLimitAmount(limit.monthly_max_out);
+        if (isEmpty(attrs.monthly_max_out)) {
+            throw new TypeError('limit.monthly_max_out argument must be of type String');
+        }
+
+        attrs.max_operation_in = this._toLimitAmount(limit.max_operation_in);
+        if (isEmpty(attrs.max_operation_in)) {
+            throw new TypeError('limit.max_operation_in argument must be of type String');
+        }
+
+        attrs.daily_max_in = this._toLimitAmount(limit.daily_max_in);
+        if (isEmpty(attrs.daily_max_in)) {
+            throw new TypeError('limit.daily_max_in argument must be of type String');
+        }
+
+
+        attrs.monthly_max_in = this._toLimitAmount(limit.monthly_max_in);
+        if (isEmpty(attrs.monthly_max_in)) {
+            throw new TypeError('limit.monthly_max_in argument must be of type String');
+        }
+
+        return this._createAdministrativeOp(ADMIN_OP_ACCOUNT_LIMITS, attrs);
+    }
+
+    static _toLimitAmount(limit) {
+        if (isUndefined(limit) || limit === "-1") {
+            return "-1";
+        }
+
+        if (!this.isValidAmount(limit)) {
+            return "";
+        }
+
+        return this._toXDRAmount(limit).toString();
+    }
+
+    /**
+     * Creates administrative op with set traits action.
+     * @param {string} accountId - account for which traits will be applied
+     * @param {bool} [block_outcoming] - if true, block out txs
+     * @param {bool} [block_incoming] - if true, blocks incoming transactions
+     */
+    static restrictAgentAccount(accountId, block_outcoming, block_incoming) {
+        if (!isString(accountId)) {
+            throw new TypeError('accountId argument must be of type String');
+        }
+
+        var restrictions = {
+            account_id: accountId
+        };
+
+        if (typeof block_outcoming !== 'undefined') {
+            if (!isBoolean(block_outcoming)) {
+                throw new TypeError('block_outcoming argument must be of type Boolean');
+            }
+            restrictions.block_outcoming_payments = block_outcoming.toString();
+        }
+
+        if (typeof block_incoming !== 'undefined') {
+            if (!isBoolean(block_incoming)) {
+                throw new TypeError('block_incoming argument must be of type Boolean');
+            }
+            restrictions.block_incoming_payments = block_incoming.toString();
+        }
+
+        return this._createAdministrativeOp(ADMIN_OP_TRAITS, restrictions);
+    }
+
+    /** Manages assets. If Asset does not exists - creates one, or updates
+     * @param {Asset} asset - The asset to be managed
+     * @param {boolean} isAnonymous - Defines if asset must be anonymous
+     * @param {boolean} [isDelete] - Defines if asset must be deleted
+     */
+    static manageAssets(asset, isAnonymous, isDelete) {
+        if (typeof asset === 'undefined') {
+            throw new TypeError('asset argument must be of type object');
+        }
+        var attrs = {
+            asset_type: asset.getAssetType()
+        };
+        if (!asset.isNative()) {
+            attrs.asset_code = asset.getCode();
+            attrs.asset_issuer = asset.getIssuer();
+        }
+        if (!isBoolean(isAnonymous)) {
+            throw new TypeError('isAnonymous argument must be of type Boolean');
+        }
+        attrs.is_anonymous = isAnonymous.toString();
+
+        if (typeof isDelete !== 'undefined') {
+            if (!isBoolean(isDelete)) {
+                throw new TypeError('isDelete argument must be of type Boolean');
+            }
+            attrs.delete = isDelete.toString();
+        }
+
+        return this._createAdministrativeOp(ADMIN_OP_ASSET, attrs);
+    }
+
+    /**
+    * Create a payment reversal operation.
+    * @param {object} opts
+    * @param {string} opts.paymentSource - Source of reversing payment.
+    * @param {Asset} opts.asset - The asset of payment to be reversed.
+    * @param {string} opts.amount - The amount of payment to be reversed.
+    * @param {string} opts.commissionAmount - The commission amount of payment to be reversed.
+    * @param {number|string} opts.paymentID -ID of payment to be reversed
+    * @param {string} [opts.source] - The source account for the payment. Defaults to the transaction's source account.
+    * @returns {xdr.PaymentOp}
+    */
+    static paymentReversal(opts) {
+        if (!Keypair.isValidPublicKey(opts.paymentSource)) {
+            throw new Error("destination is invalid");
+        }
+        if (!opts.asset) {
+            throw new Error("Must provide an asset for a payment operation");
+        }
+        if (!this.isValidAmount(opts.amount)) {
+            throw new TypeError('amount argument must be of type String and represent a positive number');
+        }
+        if (!this.isValidAmount(opts.commissionAmount)) {
+            throw new TypeError('commissionAmount argument must be of type String and represent a positive number');
+        }
+
+        if (isUndefined(opts.paymentID)) {
+            throw new TypeError('paymentID argument must be of type String or Number');
+        }
+
+        let attributes = {};
+        attributes.paymentId = Hyper.fromString(opts.paymentID.toString());
+        attributes.paymentSource = Keypair.fromAccountId(opts.paymentSource).xdrAccountId();
+        attributes.asset = opts.asset.toXdrObject();
+        attributes.amount = this._toXDRAmount(opts.amount);
+        attributes.commissionAmount = this._toXDRAmount(opts.commissionAmount);
+        let paymentReversal = new xdr.PaymentReversalOp(attributes);
+
+        let opAttributes = {};
+        opAttributes.body = xdr.OperationBody.paymentReversal(paymentReversal);
+        this.setSourceAccount(opAttributes, opts);
+
+        return new xdr.Operation(opAttributes);
+    }
+
+    /**
+     * Creates AdministrativeOp
+     * @param {string} name - name of operation
+     * @param {object} opts - data to be added as OpData
+     */
+    static _createAdministrativeOp(name, opts) {
+        if (!isString(name))
+            throw new TypeError('name argument must be of type String');
+        let opData = {};
+        opData[name] = opts;
+        let opStrData = JSON.stringify(opData);
+        let adminOp = new xdr.AdministrativeOp({ opData: opStrData });
+
+        let opAttributes = {};
+        opAttributes.body = xdr.OperationBody.administrative(adminOp);
+        this.setSourceAccount(opAttributes, opts);
+
+        return new xdr.Operation(opAttributes);
+    }
+
     static setSourceAccount(opAttributes, opts) {
-      if (opts.source) {
-          if (!StrKey.isValidEd25519PublicKey(opts.source)) {
-              throw new Error("Source address is invalid");
-          }
-          opAttributes.sourceAccount = Keypair.fromPublicKey(opts.source).xdrAccountId();
-      }
+        if (opts.source) {
+            if (!Keypair.isValidPublicKey(opts.source)) {
+                throw new Error("Source address is invalid");
+            }
+            opAttributes.sourceAccount = Keypair.fromAccountId(opts.source).xdrAccountId();
+        }
     }
 
     /**
@@ -525,7 +793,7 @@ export class Operation {
     */
     static operationToObject(operation) {
         function accountIdtoAddress(accountId) {
-          return StrKey.encodeEd25519PublicKey(accountId.ed25519());
+            return encodeCheck("accountId", accountId.ed25519());
         }
 
         let result = {};
@@ -538,7 +806,7 @@ export class Operation {
             case "createAccount":
                 result.type = "createAccount";
                 result.destination = accountIdtoAddress(attrs.destination());
-                result.startingBalance = this._fromXDRAmount(attrs.startingBalance());
+                result.accountType = attrs.body().switch().value;
                 break;
             case "payment":
                 result.type = "payment";
@@ -587,16 +855,9 @@ export class Operation {
 
                 if (attrs.signer()) {
                     let signer = {};
-                    let arm = attrs.signer().key().arm();
-                    if (arm == "ed25519") {
-                        signer.ed25519PublicKey = accountIdtoAddress(attrs.signer().key());
-                    } else if (arm == "preAuthTx") {
-                        signer.preAuthTx = attrs.signer().key().preAuthTx();
-                    } else if (arm == "hashX") {
-                        signer.sha256Hash = attrs.signer().key().hashX();
-                    }
-
+                    signer.pubKey = accountIdtoAddress(attrs.signer().pubKey());
                     signer.weight = attrs.signer().weight();
+                    signer.signerType = attrs.signer().signerType();
                     result.signer = signer;
                 }
                 break;
@@ -626,6 +887,18 @@ export class Operation {
                 break;
             case "inflation":
                 result.type = "inflation";
+                break;
+            case "administrative":
+                result.type = "administrative";
+                result.opData = attrs.opData();
+                break;
+            case "paymentReversal":
+                result.type = "paymentReversal";
+                result.paymentSource = accountIdtoAddress(attrs.paymentSource());
+                result.asset = Asset.fromOperation(attrs.asset());
+                result.amount = this._fromXDRAmount(attrs.amount());
+                result.commissionAmount = this._fromXDRAmount(attrs.commissionAmount());
+                result.paymentID = attrs.paymentId().toString();
                 break;
             default:
                 throw new Error("Unknown operation");
@@ -676,10 +949,6 @@ export class Operation {
         }
 
         return true;
-    }
-
-    static constructAmountRequirementsError(arg) {
-      return `${arg} argument must be of type String, represent a positive number and have at most 7 digits after the decimal`;
     }
 
     /**
@@ -739,6 +1008,18 @@ export class Operation {
     static _fromXDRPrice(price) {
         let n = new BigNumber(price.n());
         return n.div(new BigNumber(price.d())).toString();
+    }
+
+    static _accountTypeFromNumber(rawAccountType) {
+        if (!this._isValidAccountType(rawAccountType)) {
+            throw new Error(`XDR Read Error: Unknown AccountType member for value ${rawAccountType}`);
+        }
+
+        return xdr.AccountType._byValue.get(rawAccountType);
+    }
+
+    static _isValidAccountType(rawAccountType) {
+        return xdr.AccountType._byValue.has(rawAccountType);
     }
 
     /**

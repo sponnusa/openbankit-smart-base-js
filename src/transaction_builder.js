@@ -11,7 +11,7 @@ import clone from "lodash/clone";
 import map from "lodash/map";
 import isUndefined from "lodash/isUndefined";
 
-let BASE_FEE     = 100; // Stroops
+let BASE_FEE     = 0; // Stroops
 let MIN_LEDGER   = 0;
 let MAX_LEDGER   = 0xFFFFFFFF; // max uint32
 
@@ -65,6 +65,7 @@ export class TransactionBuilder {
         }
         this.source        = sourceAccount;
         this.operations    = [];
+        this.signers       = [];
 
         this.baseFee    = (isUndefined(opts.fee) ? BASE_FEE : opts.fee);
 
@@ -97,7 +98,7 @@ export class TransactionBuilder {
     }
 
     /**
-     * This will build the transaction.
+     * This will build the transaction and sign it with the {@link Keypair} passed to {@link TransactionBuilder#addSigner}.
      * It will also increment the source account's sequence number by 1.
      * @returns {Transaction} This method will return the built {@link Transaction}.
      */
@@ -105,7 +106,7 @@ export class TransactionBuilder {
         let sequenceNumber = new BigNumber(this.source.sequenceNumber()).add(1);
 
         var attrs = {
-          sourceAccount: Keypair.fromPublicKey(this.source.accountId()).xdrAccountId(),
+          sourceAccount: Keypair.fromAccountId(this.source.accountId()).xdrAccountId(),
           fee:           this.baseFee * this.operations.length,
           seqNum:        xdr.SequenceNumber.fromString(sequenceNumber.toString()),
           memo:          this.memo,
@@ -121,6 +122,7 @@ export class TransactionBuilder {
         let xenv = new xdr.TransactionEnvelope({tx:xtx});
 
         let tx = new Transaction(xenv);
+        tx.sign(...this.signers);
 
         this.source.incrementSequenceNumber();
         return tx;

@@ -25,7 +25,9 @@ enum OperationType
     ALLOW_TRUST = 7,
     ACCOUNT_MERGE = 8,
     INFLATION = 9,
-    MANAGE_DATA = 10
+    MANAGE_DATA = 10,
+	ADMINISTRATIVE = 11,
+	PAYMENT_REVERSAL = 12
 };
 
 /* CreateAccount
@@ -37,10 +39,24 @@ Result: CreateAccountResult
 
 */
 
+struct ScratchCard 
+{
+	Asset asset;           // what they end up with
+    int64 amount;          // amount they end up with
+};
+
 struct CreateAccountOp
 {
     AccountID destination; // account to create
-    int64 startingBalance; // amount they end up with
+    union switch (AccountType accountType)
+    {
+    case ACCOUNT_SCRATCH_CARD:
+        ScratchCard scratchCard;
+	default:
+		void;
+    }
+    body;
+
 };
 
 /* Payment
@@ -221,6 +237,28 @@ struct ManageDataOp
     DataValue* dataValue;   // set to null to clear
 };
 
+struct AdministrativeOp
+{
+	longString opData;
+};
+
+/* Reversal Payment
+
+    Returns payment to sender
+
+    Threshold: med
+
+    Result: PaymentReversalResult
+*/
+struct PaymentReversalOp
+{
+    AccountID paymentSource; // sender of payment to be reversed
+    Asset asset;             // what they end up with
+    int64 amount;            // amount they end up with
+	int64 commissionAmount;   // amount of commission to be returned
+	int64 paymentID;         // id of payment to be reversed
+};
+
 /* An operation is the lowest unit of work that a transaction does */
 struct Operation
 {
@@ -253,6 +291,10 @@ struct Operation
         void;
     case MANAGE_DATA:
         ManageDataOp manageDataOp;
+	case ADMINISTRATIVE:
+		AdministrativeOp adminOp;
+	case PAYMENT_REVERSAL:
+		PaymentReversalOp paymentReversalOp;
     }
     body;
 };
@@ -283,7 +325,7 @@ case MEMO_RETURN:
 struct TimeBounds
 {
     uint64 minTime;
-    uint64 maxTime; // 0 here means no maxTime
+    uint64 maxTime;
 };
 
 /* a transaction is a container for a set of operations
@@ -321,24 +363,39 @@ struct Transaction
     ext;
 };
 
-struct TransactionSignaturePayload {
-    Hash networkId;
-    union switch (EnvelopeType type)
+enum OperationFeeType
+{
+    opFEE_NONE = 0,
+    opFEE_CHARGED = 1
+};
+
+union OperationFee switch (OperationFeeType type)
+{
+case opFEE_NONE:
+    void;
+case opFEE_CHARGED:
+    struct
     {
-    case ENVELOPE_TYPE_TX:
-          Transaction tx;
-    /* All other values of type are invalid */
-    } taggedTransaction;
+        Asset asset;
+        int64 amountToCharge;
+		int64* percentFee;
+		int64* flatFee;
+		// reserved for future use
+		union switch (int v)
+		{
+		case 0:
+			void;
+		}
+		ext;
+    } fee;
 };
 
 /* A TransactionEnvelope wraps a transaction with signatures. */
 struct TransactionEnvelope
 {
     Transaction tx;
-    /* Each decorated signature is a signature over the SHA256 hash of
-     * a TransactionSignaturePayload */
-    DecoratedSignature
-    signatures<20>;
+    DecoratedSignature signatures<20>;
+	OperationFee operationFees<100>; // actual fees charged for the transaction
 };
 
 /* Operation Results section */
@@ -371,7 +428,11 @@ enum CreateAccountResultCode
     CREATE_ACCOUNT_UNDERFUNDED = -2, // not enough funds in source account
     CREATE_ACCOUNT_LOW_RESERVE =
         -3, // would create an account below the min reserve
-    CREATE_ACCOUNT_ALREADY_EXIST = -4 // account already exists
+    CREATE_ACCOUNT_ALREADY_EXIST = -4, // account already exists
+    CREATE_ACCOUNT_NOT_AUTHORIZED_TYPE = -5,
+    CREATE_ACCOUNT_WRONG_TYPE = -6,
+    CREATE_ACCOUNT_LINE_FULL = -7,
+    CREATE_ACCOUNT_NO_ISSUER = -8
 };
 
 union CreateAccountResult switch (CreateAccountResultCode code)
@@ -523,7 +584,8 @@ enum SetOptionsResultCode
     SET_OPTIONS_UNKNOWN_FLAG = -6,           // can't set an unknown flag
     SET_OPTIONS_THRESHOLD_OUT_OF_RANGE = -7, // bad value for weight/threshold
     SET_OPTIONS_BAD_SIGNER = -8,             // signer cannot be masterkey
-    SET_OPTIONS_INVALID_HOME_DOMAIN = -9     // malformed home domain
+    SET_OPTIONS_INVALID_HOME_DOMAIN = -9,     // malformed home domain
+    SET_OPTIONS_BAD_SIGNER_TYPE = -10        // only bank can add emission/admin signer
 };
 
 union SetOptionsResult switch (SetOptionsResultCode code)
@@ -545,8 +607,7 @@ enum ChangeTrustResultCode
     CHANGE_TRUST_NO_ISSUER = -2,     // could not find issuer
     CHANGE_TRUST_INVALID_LIMIT = -3, // cannot drop limit below balance
                                      // cannot create with a limit of 0
-    CHANGE_TRUST_LOW_RESERVE = -4, // not enough funds to create a new trust line,
-    CHANGE_TRUST_SELF_NOT_ALLOWED = -5 // trusting self is not allowed
+    CHANGE_TRUST_LOW_RESERVE = -4 // not enough funds to create a new trust line
 };
 
 union ChangeTrustResult switch (ChangeTrustResultCode code)
@@ -568,8 +629,7 @@ enum AllowTrustResultCode
     ALLOW_TRUST_NO_TRUST_LINE = -2, // trustor does not have a trustline
                                     // source account does not require trust
     ALLOW_TRUST_TRUST_NOT_REQUIRED = -3,
-    ALLOW_TRUST_CANT_REVOKE = -4, // source account can't revoke trust,
-    ALLOW_TRUST_SELF_NOT_ALLOWED = -5 // trusting self is not allowed
+    ALLOW_TRUST_CANT_REVOKE = -4 // source account can't revoke trust
 };
 
 union AllowTrustResult switch (AllowTrustResultCode code)
@@ -646,6 +706,63 @@ default:
     void;
 };
 
+/******* Administrative Result ********/
+enum AdministrativeResultCode
+{
+    // codes considered as "success" for the operation
+    ADMINISTRATIVE_SUCCESS = 0, // op was applied
+
+    // codes considered as "failure" for the operation
+    ADMINISTRATIVE_MALFORMED = -1,   // invalid operation
+    ADMINISTRATIVE_NOT_AUTHORIZED = -2 //not enough rights to perform
+};
+
+union AdministrativeResult switch (AdministrativeResultCode code)
+{
+case ADMINISTRATIVE_SUCCESS:
+    void;
+default:
+    void;
+};
+
+
+/******* PaymentReversal Result ********/
+
+enum PaymentReversalResultCode
+{
+    // codes considered as "success" for the operation
+    PAYMENT_REVERSAL_SUCCESS = 0, // payment successfuly completed
+
+    // codes considered as "failure" for the operation
+    PAYMENT_REVERSAL_UNDERFUNDED = -1,                   // not enough funds in source account
+    PAYMENT_REVERSAL_SRC_NO_TRUST = -2,                  // no trust line on source account
+    PAYMENT_REVERSAL_SRC_NOT_AUTHORIZED = -3,            // source not authorized to transfer
+    PAYMENT_REVERSAL_NO_PAYMENT_SENDER = -4,             // destination account does not exist
+    PAYMENT_REVERSAL_NO_PAYMENT_SENDER_TRUST = -5,       // destination missing a trust line for asset
+    PAYMENT_REVERSAL_PAYMENT_SENDER_NOT_AUTHORIZED = -6, // destination not authorized to hold asset
+    PAYMENT_REVERSAL_PAYMENT_SENDER_LINE_FULL = -7,      // destination would go above their limit
+    PAYMENT_REVERSAL_NO_ISSUER = -8,                     // missing issuer on asset
+	PAYMENT_REVERSAL_COMMISSION_UNDERFUNDED = -9,        // not enough funds in commission account
+	PAYMENT_REVERSAL_PAYMENT_EXPIRED = -10,              // payment to old to reverse 
+	PAYMENT_REVERSAL_PAYMENT_DOES_NOT_EXISTS = -11,      // payment with such id does not exists
+	PAYMENT_REVERSAL_INVALID_AMOUNT = -12,               // amount is not equal to amount in payment
+	PAYMENT_REVERSAL_INVALID_COMMISSION = -13,           // commission is not equal to commission in payment
+	PAYMENT_REVERSAL_INVALID_PAYMENT_SENDER = -14,       // payment sender is not equal to source in payment
+	PAYMENT_REVERSAL_INVALID_SOURCE = -15,               // source of reversal is not equal payment destination
+	PAYMENT_REVERSAL_INVALID_ASSET = -16,                // asset is not equal to asset in payment
+	PAYMENT_REVERSAL_MALFORMED = -17,                    // reversal payment is malformed in some way
+	PAYMENT_REVERSAL_NOT_ALLOWED = -18,                  // reversal payment is not allowed for this account type
+	PAYMENT_REVERSAL_ALREADY_REVERSED = -19              // payment already have been reversed
+};
+
+union PaymentReversalResult switch (PaymentReversalResultCode code)
+{
+case PAYMENT_REVERSAL_SUCCESS:
+    void;
+default:
+    void;
+};
+
 /* High level Operation Result */
 
 enum OperationResultCode
@@ -683,6 +800,10 @@ case opINNER:
         InflationResult inflationResult;
     case MANAGE_DATA:
         ManageDataResult manageDataResult;
+	case ADMINISTRATIVE:
+		AdministrativeResult adminResult;
+	case PAYMENT_REVERSAL:
+		PaymentReversalResult paymentReversalResult;
     }
     tr;
 default:
@@ -710,8 +831,6 @@ enum TransactionResultCode
 
 struct TransactionResult
 {
-    int64 feeCharged; // actual fee charged for the transaction
-
     union switch (TransactionResultCode code)
     {
     case txSUCCESS:

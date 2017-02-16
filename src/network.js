@@ -7,11 +7,11 @@ import {hash} from "./hashing";
  * @type {{PUBLIC: string, TESTNET: string}}
  */
 export const Networks = {
-	PUBLIC: "Public Global Stellar Network ; September 2015",
-	TESTNET: "Test SDF Network ; September 2015"
+	PUBLIC: "Smart Money ; May 2016",
+	TESTNET: "Dev Smart Money ; May 2016"
 };
 
-var current = null;
+var current;
 
 export class Network {
 	/**
@@ -19,7 +19,7 @@ export class Network {
    * stellar networks.  It also provides the {@link Network.current} class method that returns the network
    * that will be used by this process for the purposes of generating signatures.
    *
-   * You should select network your app will use before adding the first signature. You can use the `use`,
+   * The test network is the default, but you can also override the default by using the `use`,
    * `usePublicNetwork` and `useTestNetwork` helper methods.
    *
 	 * Creates a new `Network` object.
@@ -28,6 +28,13 @@ export class Network {
 	 */
 	constructor(networkPassphrase) {
 		this._networkPassphrase = networkPassphrase;
+	}
+
+	/**
+	 * Use default network (right now default network is `testnet`).
+	 */
+	static useDefault() {
+		this.useTestNetwork();
 	}
 
 	/**
@@ -76,3 +83,5 @@ export class Network {
 		return hash(this.networkPassphrase());
 	}
 }
+
+Network.useDefault();

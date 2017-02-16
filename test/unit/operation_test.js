@@ -1,45 +1,50 @@
 import BigNumber from 'bignumber.js';
-import crypto from 'crypto';
-import isString from 'lodash/isString';
+var gutil = require('gulp-util')
 
-describe('Operation', function() {
+describe('Operation', function () {
 
     describe(".createAccount()", function () {
         it("creates a createAccountOp", function () {
             var destination = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ";
-            var startingBalance = '1000';
-            let op = StellarBase.Operation.createAccount({destination, startingBalance});
+            var accountType = 2;
+            let op = StellarBase.Operation.createAccount({ destination, accountType });
             var xdr = op.toXDR("hex");
             var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
             var obj = StellarBase.Operation.operationToObject(operation);
             expect(obj.type).to.be.equal("createAccount");
             expect(obj.destination).to.be.equal(destination);
-            expect(operation.body().value().startingBalance().toString()).to.be.equal('10000000000');
-            expect(obj.startingBalance).to.be.equal(startingBalance);
+            expect(obj.accountType).to.be.equal(accountType);
         });
 
         it("fails to create createAccount operation with an invalid destination address", function () {
             let opts = {
                 destination: 'GCEZW',
-                startingBalance: '20',
+                accountType: 1,
                 source: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ'
             };
             expect(() => StellarBase.Operation.createAccount(opts)).to.throw(/destination is invalid/)
         });
 
-        it("fails to create createAccount operation with an invalid startingBalance", function () {
+        it("fails to create createAccount operation with an undefined accountType", function () {
             let opts = {
                 destination: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
-                startingBalance: 20,
                 source: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ'
             };
-            expect(() => StellarBase.Operation.createAccount(opts)).to.throw(/startingBalance argument must be of type String, represent a positive number and have at most 7 digits after the decimal/)
+            expect(() => StellarBase.Operation.createAccount(opts)).to.throw(/Must provide an accountType for a create user operation/)
+        });
+        it("fails to create createAccount operation with an invalid accountType", function () {
+            let opts = {
+                destination: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
+                accountType: 20,
+                source: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ'
+            };
+            expect(() => StellarBase.Operation.createAccount(opts)).to.throw(/Must provide an accountType for a create user operation/)
         });
 
         it("fails to create createAccount operation with an invalid source address", function () {
             let opts = {
                 destination: 'GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ',
-                startingBalance: '20',
+                accountType: 2,
                 source: 'GCEZ'
             };
             expect(() => StellarBase.Operation.createAccount(opts)).to.throw(/Source address is invalid/)
@@ -51,7 +56,7 @@ describe('Operation', function() {
             var destination = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ";
             var amount = "1000";
             var asset = new StellarBase.Asset("USDUSD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
-            let op = StellarBase.Operation.payment({destination, asset, amount});
+            let op = StellarBase.Operation.payment({ destination, asset, amount });
             var xdr = op.toXDR("hex");
             var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
             var obj = StellarBase.Operation.operationToObject(operation);
@@ -82,7 +87,7 @@ describe('Operation', function() {
     });
 
     describe(".pathPayment()", function () {
-        it("creates a pathPaymentOp", function() {
+        it("creates a pathPaymentOp", function () {
             var sendAsset = new StellarBase.Asset("USD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
             var sendMax = '3.007';
             var destination = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ";
@@ -92,7 +97,7 @@ describe('Operation', function() {
                 new StellarBase.Asset('USD', 'GBBM6BKZPEHWYO3E3YKREDPQXMS4VK35YLNU7NFBRI26RAN7GI5POFBB'),
                 new StellarBase.Asset('EUR', 'GDTNXRLOJD2YEBPKK7KCMR7J33AAG5VZXHAJTHIG736D6LVEFLLLKPDL')
             ];
-            let op = StellarBase.Operation.pathPayment({sendAsset, sendMax, destination, destAsset, destAmount, path});
+            let op = StellarBase.Operation.pathPayment({ sendAsset, sendMax, destination, destAsset, destAmount, path });
             var xdr = op.toXDR("hex");
             var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
             var obj = StellarBase.Operation.operationToObject(operation);
@@ -144,10 +149,32 @@ describe('Operation', function() {
         });
     });
 
+    describe(".paymentReversal()", function () {
+        it("creates a paymentReversalOp", function () {
+            var paymentSource = "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ";
+            var amount = "1000";
+            var commissionAmount = "12";
+            var asset = new StellarBase.Asset("USDUSD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
+            var paymentID = "123";
+            let op = StellarBase.Operation.paymentReversal({ paymentSource: paymentSource, asset: asset, amount: amount, paymentID: paymentID, commissionAmount: commissionAmount });
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("paymentReversal");
+            expect(obj.paymentID.toString()).to.be.equal(paymentID);
+            expect(obj.paymentSource).to.be.equal(paymentSource);
+            expect(operation.body().value().amount().toString()).to.be.equal('10000000000');
+            expect(operation.body().value().commissionAmount().toString()).to.be.equal('120000000');
+            expect(obj.amount).to.be.equal(amount);
+            expect(obj.commissionAmount).to.be.equal(commissionAmount);
+            expect(obj.asset.equals(asset)).to.be.true;
+        });
+    });
+
     describe(".changeTrust()", function () {
         it("creates a changeTrustOp", function () {
             let asset = new StellarBase.Asset("USD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
-            let op = StellarBase.Operation.changeTrust({asset: asset});
+            let op = StellarBase.Operation.changeTrust({ asset: asset });
             var xdr = op.toXDR("hex");
             var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
             var obj = StellarBase.Operation.operationToObject(operation);
@@ -159,7 +186,7 @@ describe('Operation', function() {
 
         it("creates a changeTrustOp with limit", function () {
             let asset = new StellarBase.Asset("USD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
-            let op = StellarBase.Operation.changeTrust({asset: asset, limit: "50"});
+            let op = StellarBase.Operation.changeTrust({ asset: asset, limit: "50" });
             var xdr = op.toXDR("hex");
             var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
             var obj = StellarBase.Operation.operationToObject(operation);
@@ -171,7 +198,7 @@ describe('Operation', function() {
 
         it("deletes a trustline", function () {
             let asset = new StellarBase.Asset("USD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
-            let op = StellarBase.Operation.changeTrust({asset: asset, limit: "0"});
+            let op = StellarBase.Operation.changeTrust({ asset: asset, limit: "0" });
             var xdr = op.toXDR("hex");
             var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
             var obj = StellarBase.Operation.operationToObject(operation);
@@ -182,7 +209,7 @@ describe('Operation', function() {
 
         it("throws TypeError for incorrect limit argument", function () {
             let asset = new StellarBase.Asset("USD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
-            let changeTrust = () => StellarBase.Operation.changeTrust({asset: asset, limit: 0});
+            let changeTrust = () => StellarBase.Operation.changeTrust({ asset: asset, limit: 0 });
             expect(changeTrust).to.throw(TypeError);
         });
     });
@@ -215,25 +242,20 @@ describe('Operation', function() {
     });
 
     describe(".setOptions()", function () {
-        it("auth flags are set correctly", function () {
-            expect(StellarBase.AuthRequiredFlag).to.be.equal(1);
-            expect(StellarBase.AuthRevocableFlag).to.be.equal(2);
-            expect(StellarBase.AuthImmutableFlag).to.be.equal(4);
-        });
-
         it("creates a setOptionsOp", function () {
             var opts = {};
             opts.inflationDest = "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7";
-            opts.clearFlags = StellarBase.AuthRevocableFlag | StellarBase.AuthImmutableFlag;
-            opts.setFlags = StellarBase.AuthRequiredFlag;
+            opts.clearFlags = 1;
+            opts.setFlags = 1;
             opts.masterWeight = 0;
             opts.lowThreshold = 1;
             opts.medThreshold = 2;
             opts.highThreshold = 3;
 
             opts.signer = {
-                ed25519PublicKey: "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7",
-                weight: 1
+                address: "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7",
+                weight: 1,
+                signerType: 0
             };
             opts.homeDomain = "www.example.com";
             let op = StellarBase.Operation.setOptions(opts);
@@ -243,97 +265,19 @@ describe('Operation', function() {
 
             expect(obj.type).to.be.equal("setOptions");
             expect(obj.inflationDest).to.be.equal(opts.inflationDest);
-            expect(obj.clearFlags).to.be.equal(6);
-            expect(obj.setFlags).to.be.equal(1);
+            expect(obj.clearFlags).to.be.equal(opts.clearFlags);
+            expect(obj.setFlags).to.be.equal(opts.setFlags);
             expect(obj.masterWeight).to.be.equal(opts.masterWeight);
             expect(obj.lowThreshold).to.be.equal(opts.lowThreshold);
             expect(obj.medThreshold).to.be.equal(opts.medThreshold);
             expect(obj.highThreshold).to.be.equal(opts.highThreshold);
 
-            expect(obj.signer.ed25519PublicKey).to.be.equal(opts.signer.ed25519PublicKey);
+            expect(obj.signer.pubKey).to.be.equal(opts.signer.pubKey);
             expect(obj.signer.weight).to.be.equal(opts.signer.weight);
             expect(obj.homeDomain).to.be.equal(opts.homeDomain);
         });
 
-        it("creates a setOptionsOp with preAuthTx signer", function () {
-            var opts = {};
-
-            var hash = crypto.createHash('sha256').update("Tx hash").digest();
-
-            opts.signer = {
-                preAuthTx: hash,
-                weight: 10
-            };
-            
-            let op = StellarBase.Operation.setOptions(opts);
-            var xdr = op.toXDR("hex");
-            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
-            var obj = StellarBase.Operation.operationToObject(operation);
-
-            expectBuffersToBeEqual(obj.signer.preAuthTx, hash);
-            expect(obj.signer.weight).to.be.equal(opts.signer.weight);
-        });
-
-        it("creates a setOptionsOp with preAuthTx signer from a hex string", function () {
-            var opts = {};
-
-            var hash = crypto.createHash('sha256').update("Tx hash").digest('hex');
-            expect(isString(hash)).to.be.true
-
-            opts.signer = {
-                preAuthTx: hash,
-                weight: 10
-            };
-
-            let op = StellarBase.Operation.setOptions(opts);
-            var xdr = op.toXDR("hex");
-            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
-            var obj = StellarBase.Operation.operationToObject(operation);
-
-            expectBuffersToBeEqual(obj.signer.preAuthTx, hash);
-            expect(obj.signer.weight).to.be.equal(opts.signer.weight);
-        });
-
-        it("creates a setOptionsOp with hash signer", function () {
-            var opts = {};
-
-            var hash = crypto.createHash('sha256').update("Hash Preimage").digest();
-
-            opts.signer = {
-                sha256Hash: hash,
-                weight: 10
-            };
-            
-            let op = StellarBase.Operation.setOptions(opts);
-            var xdr = op.toXDR("hex");
-            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
-            var obj = StellarBase.Operation.operationToObject(operation);
-
-            expectBuffersToBeEqual(obj.signer.sha256Hash, hash);
-            expect(obj.signer.weight).to.be.equal(opts.signer.weight);
-        });
-
-        it("creates a setOptionsOp with hash signer from a hex string", function () {
-            var opts = {};
-
-            var hash = crypto.createHash('sha256').update("Hash Preimage").digest('hex');
-            expect(isString(hash)).to.be.true
-
-            opts.signer = {
-                sha256Hash: hash,
-                weight: 10
-            };
-
-            let op = StellarBase.Operation.setOptions(opts);
-            var xdr = op.toXDR("hex");
-            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
-            var obj = StellarBase.Operation.operationToObject(operation);
-
-            expectBuffersToBeEqual(obj.signer.sha256Hash, hash);
-            expect(obj.signer.weight).to.be.equal(opts.signer.weight);
-        });
-
-        it("string setFlags", function() {
+        it("string setFlags", function () {
             let opts = {
                 setFlags: '4'
             };
@@ -353,7 +297,7 @@ describe('Operation', function() {
             expect(() => StellarBase.Operation.setOptions(opts)).to.throw();
         });
 
-        it("string clearFlags", function() {
+        it("string clearFlags", function () {
             let opts = {
                 clearFlags: '4'
             };
@@ -383,53 +327,42 @@ describe('Operation', function() {
         it("fails to create setOptions operation with an invalid signer address", function () {
             let opts = {
                 signer: {
-                    ed25519PublicKey: "GDGU5OAPHNPU5UCL",
+                    address: "GDGU5OAPHNPU5UCL",
                     weight: 1
                 }
             };
-            expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/signer.ed25519PublicKey is invalid/)
+            expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/signer.pubKey is invalid/)
         });
 
-        it("fails to create setOptions operation with multiple signer values", function () {
-            let opts = {
-                signer: {
-                    ed25519PublicKey: "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7",
-                    sha256Hash: new Buffer(32),
-                    weight: 1
-                }
-            };
-            expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/Signer object must contain exactly one/)
-        });
-
-        it("fails to create setOptions operation with an invalid masterWeight", function() {
+        it("fails to create setOptions operation with an invalid masterWeight", function () {
             let opts = {
                 masterWeight: 400
             };
             expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/masterWeight value must be between 0 and 255/)
         });
 
-        it("fails to create setOptions operation with an invalid lowThreshold", function() {
+        it("fails to create setOptions operation with an invalid lowThreshold", function () {
             let opts = {
                 lowThreshold: 400
             };
             expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/lowThreshold value must be between 0 and 255/)
         });
 
-        it("fails to create setOptions operation with an invalid medThreshold", function() {
+        it("fails to create setOptions operation with an invalid medThreshold", function () {
             let opts = {
                 medThreshold: 400
             };
             expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/medThreshold value must be between 0 and 255/)
         });
 
-        it("fails to create setOptions operation with an invalid highThreshold", function() {
+        it("fails to create setOptions operation with an invalid highThreshold", function () {
             let opts = {
                 highThreshold: 400
             };
             expect(() => StellarBase.Operation.setOptions(opts)).to.throw(/highThreshold value must be between 0 and 255/)
         });
 
-        it("fails to create setOptions operation with an invalid homeDomain", function() {
+        it("fails to create setOptions operation with an invalid homeDomain", function () {
             let opts = {
                 homeDomain: 67238
             };
@@ -755,27 +688,245 @@ describe('Operation', function() {
 
         describe("fails to create manageData operation", function () {
             it("name is not a string", function () {
-                expect(() => StellarBase.Operation.manageData({name: 123})).to.throw()
+                expect(() => StellarBase.Operation.manageData({ name: 123 })).to.throw()
             });
 
             it("name is too long", function () {
-                expect(() => StellarBase.Operation.manageData({name: "a".repeat(65)})).to.throw()
+                expect(() => StellarBase.Operation.manageData({ name: "a".repeat(65) })).to.throw()
             });
 
             it("value is too long", function () {
-                expect(() => StellarBase.Operation.manageData({name: "a", value: new Buffer(65)})).to.throw()
+                expect(() => StellarBase.Operation.manageData({ name: "a", value: new Buffer(65) })).to.throw()
             });
+        });
+    });
+
+    describe(".setCommission", function () {
+        var fromAccount = "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7";
+        var to = "to";
+        var from_type = "1";
+        var to_type = "2";
+        var asset = new StellarBase.Asset("USDUSD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
+        var flat_fee = "12.5";
+        var percent_fee = "11.9";
+        let opts = {
+            from: fromAccount,
+            to: to,
+            from_type: from_type,
+            to_type: to_type,
+            asset: asset
+        }
+        it("creates a setCommission", function () {
+            let op = StellarBase.Operation.setCommission(opts, flat_fee, percent_fee);
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("administrative");
+            var opData = JSON.parse(obj.opData);
+            var comData = opData["commission"];
+            expect(comData.percent_fee).to.be.equal("119000000");
+            expect(comData.flat_fee).to.be.equal("125000000");
+            expect(comData.from).to.be.equal(opts.from);
+            expect(comData.to).to.be.equal(opts.to);
+            expect(comData.from_type).to.be.equal(opts.from_type);
+            expect(comData.to_type).to.be.equal(opts.to_type);
+            expect(comData.asset_code).to.be.equal(opts.asset.code);
+            expect(comData.asset_issuer).to.be.equal(opts.asset.issuer);
+        });
+
+        it("fails to create commission with negative flat_fee", function () {
+            expect(() => StellarBase.Operation.setCommission(opts, "-1", "0")).to.throw(/flat_fee argument must be of type String and represent nonnegative number/)
+        });
+
+        it("fails to create commission with negative percent_fee", function () {
+            expect(() => StellarBase.Operation.setCommission(opts, "0", 1)).to.throw(/percent_fee argument must be of type String and represent nonnegative number/)
+        });
+
+        describe(".deleteCommission", function () {
+        it("deletes Commission", function () {
+            let op = StellarBase.Operation.deleteCommission(opts);
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("administrative");
+            var opData = JSON.parse(obj.opData);
+            var comData = opData["commission"];
+            expect(comData.delete).to.be.equal("true");
+            expect(comData.from).to.be.equal(opts.from);
+            expect(comData.to).to.be.equal(opts.to);
+            expect(comData.from_type).to.be.equal(opts.from_type);
+            expect(comData.to_type).to.be.equal(opts.to_type);
+            expect(comData.asset_code).to.be.equal(opts.asset.code);
+            expect(comData.asset_issuer).to.be.equal(opts.asset.issuer);
+        });
+    });
+    });
+
+    describe(".restrictAgentAccount", function () {
+        var accountId = "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7";
+        var block_outcoming = true;
+        var block_incoming = false;
+        it("creates a restrictAgentAccount", function () {
+            let op = StellarBase.Operation.restrictAgentAccount(accountId, block_outcoming, block_incoming);
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("administrative");
+            var opData = JSON.parse(obj.opData);
+            var comData = opData["traits"];
+            expect(comData.account_id).to.be.equal(accountId);
+            expect(comData.block_outcoming_payments).to.be.equal(block_outcoming.toString());
+            expect(comData.block_incoming_payments).to.be.equal(block_incoming.toString());
+        });
+
+        it("fails to create restrictAgentAccount with invalid accountId", function () {
+            expect(() => StellarBase.Operation.restrictAgentAccount(13, block_outcoming, block_incoming)).to.throw(/accountId argument must be of type String/)
+        });
+
+        it("fails to create restrictAgentAccount with invalid block_outcoming", function () {
+            expect(() => StellarBase.Operation.restrictAgentAccount(accountId, "true", block_incoming)).to.throw(/block_outcoming argument must be of type Boolean/)
+        });
+
+        it("fails to create restrictAgentAccount with invalid block_incoming", function () {
+            expect(() => StellarBase.Operation.restrictAgentAccount(accountId, block_outcoming, "false")).to.throw(/block_incoming argument must be of type Boolean/)
+        });
+    });
+
+    describe(".setAgentLimits", function () {
+        var accountId = "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7";
+        var asset_code = "USD";
+        let limits = {
+            max_operation_out: "-1",
+            monthly_max_out: "2.12",
+            max_operation_in: "3.15",
+            daily_max_in: "4.123456",
+            monthly_max_in: "5"
+        }
+        it("creates a setAgentLimits", function () {
+            let op = StellarBase.Operation.setAgentLimits(accountId, asset_code, limits);
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("administrative");
+            var opData = JSON.parse(obj.opData);
+            var limitsData = opData["account_limits"];
+            expect(limitsData.account_id).to.be.equal(accountId);
+            expect(limitsData.asset_code).to.be.equal(asset_code);
+            expect(limitsData.max_operation_out).to.be.equal("-1");
+            expect(limitsData.daily_max_out).to.be.equal("-1");
+            expect(limitsData.monthly_max_out).to.be.equal("21200000");
+            expect(limitsData.max_operation_in).to.be.equal("31500000");
+            expect(limitsData.daily_max_in).to.be.equal("41234560");
+            expect(limitsData.monthly_max_in).to.be.equal("50000000");
+        });
+
+        it("creates a setAgentLimits with default values", function () {
+            let op = StellarBase.Operation.setAgentLimits(accountId, asset_code, {});
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("administrative");
+            var opData = JSON.parse(obj.opData);
+            var limitsData = opData["account_limits"];
+            expect(limitsData.account_id).to.be.equal(accountId);
+            expect(limitsData.asset_code).to.be.equal(asset_code);
+            expect(limitsData.max_operation_out).to.be.equal("-1");
+            expect(limitsData.daily_max_out).to.be.equal("-1");
+            expect(limitsData.monthly_max_out).to.be.equal("-1");
+            expect(limitsData.max_operation_in).to.be.equal("-1");
+            expect(limitsData.daily_max_in).to.be.equal("-1");
+            expect(limitsData.monthly_max_in).to.be.equal("-1");
+        });
+
+        it("fails to create limits with nonstring asset_code", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, 123, {})).to.throw(/asset_code argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring accountId", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(123, asset_code, {})).to.throw(/accountId argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring limit.max_operation_out", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, asset_code, {
+                max_operation_out: -1
+            })).to.throw(/limit.max_operation_out argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring limit.daily_max_out", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, asset_code, {
+                daily_max_out: -1
+            })).to.throw(/limit.daily_max_out argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring limit.monthly_max_out", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, asset_code, {
+                monthly_max_out: -1
+            })).to.throw(/limit.monthly_max_out argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring limit.max_operation_in", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, asset_code, {
+                max_operation_in: -1
+            })).to.throw(/limit.max_operation_in argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring limit.daily_max_in", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, asset_code, {
+                daily_max_in: -1
+            })).to.throw(/limit.daily_max_in argument must be of type String/)
+        });
+
+        it("fails to create limits with nonstring limit.monthly_max_in", function () {
+            expect(() => StellarBase.Operation.setAgentLimits(accountId, asset_code, {
+                monthly_max_in: -1
+            })).to.throw(/limit.monthly_max_in argument must be of type String/)
+        });
+
+
+
+
+
+    });
+
+    describe(".manageAssets", function () {
+        var asset = new StellarBase.Asset("USDUSD", "GDGU5OAPHNPU5UCLE5RDJHG7PXZFQYWKCFOEXSXNMR6KRQRI5T6XXCD7");
+        var isAnonymous = true;
+        var isDelete = false;
+        it("creates a manageAssets op", function () {
+            let op = StellarBase.Operation.manageAssets(asset, isAnonymous, isDelete);
+            var xdr = op.toXDR("hex");
+            var operation = StellarBase.xdr.Operation.fromXDR(new Buffer(xdr, "hex"));
+            var obj = StellarBase.Operation.operationToObject(operation);
+            expect(obj.type).to.be.equal("administrative");
+            var opData = JSON.parse(obj.opData);
+            var assetData = opData["asset"];
+            expect(assetData.delete).to.be.equal(isDelete.toString());
+            expect(assetData.is_anonymous).to.be.equal(isAnonymous.toString());
+            expect(assetData.asset_code).to.be.equal(asset.code);
+            expect(assetData.asset_issuer).to.be.equal(asset.issuer);
+        });
+
+        it("fails to create manageAssets with invalid asset", function () {
+            expect(() => StellarBase.Operation.manageAssets()).to.throw(/asset argument must be of type object/)
+        });
+
+        it("fails to create manageAssets with invalid isAnonymous", function () {
+            expect(() => StellarBase.Operation.manageAssets(asset, "true")).to.throw('isAnonymous argument must be of type Boolean')
+        });
+
+        it("fails to create manageAssets with invalid isDelete", function () {
+            expect(() => StellarBase.Operation.manageAssets(asset, true, "not_bool")).to.throw('isDelete argument must be of type Boolean')
         });
     });
 
     describe("._checkUnsignedIntValue()", function () {
         it("returns true for valid values", function () {
             let values = [
-                {value: 0, expected: 0},
-                {value: 10, expected: 10},
-                {value: "0", expected: 0},
-                {value: "10", expected: 10},
-                {value: undefined, expected: undefined}
+                { value: 0, expected: 0 },
+                { value: 10, expected: 10 },
+                { value: "0", expected: 0 },
+                { value: "10", expected: 10 },
+                { value: undefined, expected: undefined }
             ];
 
             for (var i in values) {
@@ -829,10 +980,10 @@ describe('Operation', function() {
     describe(".isValidAmount()", function () {
         it("returns true for valid amounts", function () {
             let amounts = [
-              "10",
-              "0.10",
-              "0.1234567",
-              "922337203685.4775807" // MAX
+                "10",
+                "0.10",
+                "0.1234567",
+                "922337203685.4775807" // MAX
             ];
 
             for (var i in amounts) {
@@ -868,9 +1019,3 @@ describe('Operation', function() {
         });
     });
 });
-
-function expectBuffersToBeEqual(left, right) {
-    let leftHex = left.toString('hex');
-    let rightHex = right.toString('hex');
-    expect(leftHex).to.eql(rightHex);
-}

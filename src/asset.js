@@ -1,6 +1,6 @@
 import {default as xdr} from "./generated/stellar-xdr_generated";
 import {Keypair} from "./keypair";
-import {StrKey} from "./strkey";
+import {encodeCheck} from "./strkey";
 import clone from 'lodash/clone';
 import padEnd from 'lodash/padEnd';
 import trimEnd from 'lodash/trimEnd';
@@ -18,13 +18,13 @@ export class Asset {
      * @param {string} issuer - The account ID of the issuer.
      */
     constructor(code, issuer) {
-      if (!/^[a-zA-Z0-9]{1,12}$/.test(code)) {
-        throw new Error("Asset code is invalid (maximum alphanumeric, 12 characters at max)");
+      if (code.length > 12) {
+        throw new Error("Asset code must be 12 characters at max");
       }
       if (String(code).toLowerCase() !== "xlm" && !issuer) {
         throw new Error("Issuer cannot be null");
       }
-      if (issuer && !StrKey.isValidEd25519PublicKey(issuer)) {
+      if (issuer && !Keypair.isValidPublicKey(issuer)) {
         throw new Error("Issuer is invalid");
       }
 
@@ -52,12 +52,12 @@ export class Asset {
           return this.native();
         case xdr.AssetType.assetTypeCreditAlphanum4():
           anum = assetXdr.alphaNum4();
-          issuer = StrKey.encodeEd25519PublicKey(anum.issuer().ed25519());
+          issuer = encodeCheck("accountId", anum.issuer().ed25519());
           code = trimEnd(anum.assetCode(), '\0');
           return new this(code, issuer);
         case xdr.AssetType.assetTypeCreditAlphanum12():
           anum = assetXdr.alphaNum12();
-          issuer = StrKey.encodeEd25519PublicKey(anum.issuer().ed25519());
+          issuer = encodeCheck("accountId", anum.issuer().ed25519());
           code = trimEnd(anum.assetCode(), '\0');
           return new this(code, issuer);
         default:
@@ -88,7 +88,7 @@ export class Asset {
 
             var assetType = new xdrType({
                 assetCode: paddedCode,
-                issuer: Keypair.fromPublicKey(this.issuer).xdrAccountId()
+                issuer: Keypair.fromAccountId(this.issuer).xdrAccountId()
             });
 
             return new xdr.Asset(xdrTypeString, assetType);

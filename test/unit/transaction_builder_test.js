@@ -46,8 +46,8 @@ describe('TransactionBuilder', function() {
             done();
         });
 
-        it("should have 100 stroops fee", function (done) {
-            expect(transaction.fee).to.be.equal(100);
+        it("should have 0 stroops fee", function (done) {
+            expect(transaction.fee).to.be.equal(0);
             done();
         });
     });
@@ -107,8 +107,8 @@ describe('TransactionBuilder', function() {
             done();
         });
 
-        it("should have 200 stroops fee", function (done) {
-            expect(transaction.fee).to.be.equal(200);
+        it("should have 0 stroops fee", function (done) {
+            expect(transaction.fee).to.be.equal(0);
             done();
         });
     });

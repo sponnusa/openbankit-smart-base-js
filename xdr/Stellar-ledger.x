@@ -81,16 +81,13 @@ in ascending order
 enum LedgerUpgradeType
 {
     LEDGER_UPGRADE_VERSION = 1,
-    LEDGER_UPGRADE_BASE_FEE = 2,
-    LEDGER_UPGRADE_MAX_TX_SET_SIZE = 3
+    LEDGER_UPGRADE_MAX_TX_SET_SIZE = 2
 };
 
 union LedgerUpgrade switch (LedgerUpgradeType type)
 {
 case LEDGER_UPGRADE_VERSION:
     uint32 newLedgerVersion; // update ledgerVersion
-case LEDGER_UPGRADE_BASE_FEE:
-    uint32 newBaseFee; // update baseFee
 case LEDGER_UPGRADE_MAX_TX_SET_SIZE:
     uint32 newMaxTxSetSize; // update maxTxSetSize
 };
@@ -125,6 +122,11 @@ case DATA:
         AccountID accountID;
         string64 dataName;
     } data;
+case REVERSED_PAYMENT:
+	struct
+	{
+		int64 ID;
+	} reversedPayment;
 };
 
 enum BucketEntryType
@@ -144,10 +146,11 @@ case DEADENTRY:
 
 // Transaction sets are the unit used by SCP to decide on transitions
 // between ledgers
+const MAX_TX_PER_LEDGER = 5000;
 struct TransactionSet
 {
     Hash previousLedgerHash;
-    TransactionEnvelope txs<>;
+    TransactionEnvelope txs<MAX_TX_PER_LEDGER>;
 };
 
 struct TransactionResultPair
@@ -159,7 +162,7 @@ struct TransactionResultPair
 // TransactionResultSet is used to recover results between ledgers
 struct TransactionResultSet
 {
-    TransactionResultPair results<>;
+    TransactionResultPair results<MAX_TX_PER_LEDGER>;
 };
 
 // Entries below are used in the historical subsystem

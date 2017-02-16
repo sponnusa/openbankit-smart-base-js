@@ -86,6 +86,14 @@ gulp.task('test:node', ['build:node', 'test:init-istanbul'], function() {
     .pipe(plugins.istanbul.writeReports());
 });
 
+gulp.task('test:hdkey', ['build:node', 'test:init-istanbul'], function() {
+  return gulp.src(["test/test-helper.js", "test/unit/hdkey_test.js"])
+      .pipe(plugins.mocha({
+        reporter: ['spec']
+      }))
+      .pipe(plugins.istanbul.writeReports());
+});
+
 gulp.task('test:browser', ["build:browser"], function (done) {
   var Server = require('karma').Server;
   var server = new Server({ configFile: __dirname + '/karma.conf.js' });
