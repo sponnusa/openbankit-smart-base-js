@@ -27,7 +27,8 @@ enum OperationType
     INFLATION = 9,
     MANAGE_DATA = 10,
 	ADMINISTRATIVE = 11,
-	PAYMENT_REVERSAL = 12
+	PAYMENT_REVERSAL = 12,
+    EXTERNAL_PAYMENT = 13
 };
 
 /* CreateAccount
@@ -72,6 +73,19 @@ struct PaymentOp
     AccountID destination; // recipient of the payment
     Asset asset;           // what they end up with
     int64 amount;          // amount they end up with
+};
+
+/* External Payment
+    Send an amount in specified asset to a destination account to another ledger.
+    Result: PaymentResult
+*/
+struct ExternalPaymentOp
+{
+    AccountID exchangeAgent;        // exchange agent account id
+    AccountID destinationBank;      // recipient bank of the payment
+    AccountID destinationAccount;   // recipient account of the payment
+    Asset asset;                    // what they end up with
+    int64 amount;                   // amount they end up with
 };
 
 /* PathPayment
@@ -295,6 +309,8 @@ struct Operation
 		AdministrativeOp adminOp;
 	case PAYMENT_REVERSAL:
 		PaymentReversalOp paymentReversalOp;
+    case EXTERNAL_PAYMENT:
+        ExternalPaymentOp externalPaymentOp;
     }
     body;
 };
@@ -781,6 +797,7 @@ case opINNER:
     case CREATE_ACCOUNT:
         CreateAccountResult createAccountResult;
     case PAYMENT:
+    case EXTERNAL_PAYMENT:
         PaymentResult paymentResult;
     case PATH_PAYMENT:
         PathPaymentResult pathPaymentResult;

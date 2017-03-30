@@ -116,6 +116,52 @@ export class Operation {
         return new xdr.Operation(opAttributes);
     }
 
+
+    /**
+     * Create a external payment operation.
+     * @param {object} opts
+     * @param {string} opts.exchangeAgent - The exchangeAgent account ID.
+     * @param {string} opts.destinationBank - Destination bank account ID.
+     * @param {string} opts.destinationAccount - Destination account ID.
+     * @param {Asset} opts.asset - The asset to send.
+     * @param {string} opts.amount - The amount to send.
+     * @param {string} [opts.source] - The source account for the payment. Defaults to the transaction's source account.
+     * @returns {xdr.PaymentOp}
+     */
+    static externalPayment(opts) {
+        if (!Keypair.isValidPublicKey(opts.exchangeAgent)) {
+            throw new Error("exchangeAgent is invalid");
+        }
+        if (!Keypair.isValidPublicKey(opts.destinationBank)) {
+            throw new Error("destination bank is invalid");
+        }
+        if (!Keypair.isValidPublicKey(opts.destinationAccount)) {
+            throw new Error("destination account is invalid");
+        }
+        if (!opts.asset) {
+            throw new Error("Must provide an asset for a payment operation");
+        }
+        if (!this.isValidAmount(opts.amount)) {
+            throw new TypeError('amount argument must be of type String and represent a positive number');
+        }
+
+        let op = new xdr.ExternalPaymentOp({
+            exchangeAgent: Keypair.fromAccountId(opts.exchangeAgent).xdrAccountId(),
+            destinationBank: Keypair.fromAccountId(opts.destinationBank).xdrAccountId(),
+            destinationAccount: Keypair.fromAccountId(opts.destinationAccount).xdrAccountId(),
+            asset: opts.asset.toXdrObject(),
+            amount: this._toXDRAmount(opts.amount),
+        });
+
+        let opAttributes = {
+            body: xdr.OperationBody.externalPayment(op)
+        };
+
+        this.setSourceAccount(opAttributes, opts);
+
+        return new xdr.Operation(opAttributes);
+    }
+
     /**
     * Returns a XDR PaymentOp. A "payment" operation send the specified amount to the
     * destination account, optionally through a path. XLM payments create the destination
@@ -811,6 +857,14 @@ export class Operation {
             case "payment":
                 result.type = "payment";
                 result.destination = accountIdtoAddress(attrs.destination());
+                result.asset = Asset.fromOperation(attrs.asset());
+                result.amount = this._fromXDRAmount(attrs.amount());
+                break;
+            case "externalPayment":
+                result.type = "externalPayment";
+                result.exchangeAgent = accountIdtoAddress(attrs.exchangeAgent());
+                result.destinationBank = accountIdtoAddress(attrs.destinationBank());
+                result.destinationAccount = accountIdtoAddress(attrs.destinationAccount());
                 result.asset = Asset.fromOperation(attrs.asset());
                 result.amount = this._fromXDRAmount(attrs.amount());
                 break;
